@@ -1,15 +1,283 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
     <meta charset="utf-8" />
-    <title>Rich Menu Manager</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LINE Rich Menu Manager</title>
     <link rel="stylesheet" href="/static/style.css" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
+
 <body>
-    <h1>Rich Menu Manager (Go)</h1>
-    <button id="list">List Rich Menus</button>
-    <pre id="output"></pre>
+    <!-- Header -->
+    <header class="navbar">
+        <div class="navbar-brand">
+            <i class="fab fa-line"></i>
+            <span>LINE Rich Menu Manager</span>
+        </div>
+        <div class="navbar-actions">
+            <button id="newMenuBtn" class="btn btn-primary" title="新增Rich Menu">
+                <i class="fas fa-plus"></i> 新增
+            </button>
+            <button id="refreshBtn" class="btn btn-secondary" title="重新載入">
+                <i class="fas fa-refresh"></i> 刷新
+            </button>
+            <button id="searchBtn" class="btn btn-secondary" title="搜尋用戶">
+                <i class="fas fa-search"></i> 搜尋
+            </button>
+            <button id="settingsBtn" class="btn btn-secondary" title="設定">
+                <i class="fas fa-cog"></i> 設定
+            </button>
+        </div>
+    </header>
+
+    <!-- Search Bar -->
+    <div id="searchBar" class="search-bar hidden">
+        <input id="userIdInput" type="text" placeholder="輸入用戶ID並按Enter鍵搜尋" />
+    </div>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Sidebar - Rich Menu List -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h3>Rich Menu 列表</h3>
+                <span id="menuCount" class="count-badge">總計: 0 個選單</span>
+            </div>
+            <button id="resetDefaultBtn" class="btn btn-warning full-width">重設預設選單</button>
+            <div id="richMenuList" class="menu-list">
+                <!-- Rich menus will be loaded here -->
+            </div>
+        </aside>
+
+        <!-- Content Area -->
+        <section class="content">
+            <!-- Rich Menu Detail -->
+            <div id="menuDetail" class="menu-detail hidden">
+                <div class="detail-form">
+                    <h3>Rich Menu 詳細資訊</h3>
+                    <div class="form-group">
+                        <label>Rich Menu ID</label>
+                        <input id="menuId" type="text" readonly />
+                    </div>
+                    <div class="form-group">
+                        <label>名稱</label>
+                        <input id="menuName" type="text" readonly />
+                    </div>
+                    <div class="form-group">
+                        <label>聊天列文字</label>
+                        <input id="chatBarText" type="text" readonly />
+                    </div>
+                    <div class="form-group">
+                        <label>預覽圖片</label>
+                        <div id="imagePreview" class="image-preview">
+                            <canvas id="previewCanvas"></canvas>
+                        </div>
+                    </div>
+                    <div class="action-buttons">
+                        <button id="deleteBtn" class="btn btn-danger">刪除 Rich Menu</button>
+                        <button id="linkUserBtn" class="btn btn-success">連結到用戶</button>
+                        <button id="unlinkUserBtn" class="btn btn-warning">從用戶解除連結</button>
+                        <button id="setDefaultBtn" class="btn btn-primary">設為預設</button>
+                    </div>
+                </div>
+
+                <!-- Areas Section -->
+                <div class="areas-section">
+                    <h3>互動區域</h3>
+                    <div id="areasList" class="areas-list">
+                        <!-- Areas will be loaded here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rich Menu Editor -->
+            <div id="menuEditor" class="menu-editor hidden">
+                <h3>建立新的 Rich Menu</h3>
+                <div class="editor-layout">
+                    <div class="editor-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>名稱 *</label>
+                                <input id="newMenuName" type="text" required />
+                            </div>
+                            <div class="form-group">
+                                <label>聊天列文字</label>
+                                <input id="newChatBarText" type="text" />
+                            </div>
+                            <div class="form-group">
+                                <label>上傳圖片 *</label>
+                                <input id="imageUpload" type="file" accept="image/*" required />
+                            </div>
+                            <div class="form-group">
+                                <label>或匯入 Rich Menu JSON</label>
+                                <div class="import-options">
+                                    <input id="jsonFileUpload" type="file" accept=".json" />
+                                    <button id="importJsonBtn" class="btn btn-secondary btn-sm">匯入 JSON</button>
+                                </div>
+                                <small class="help-text">可上傳現有的 Rich Menu JSON 配置文件</small>
+                            </div>
+                        </div>
+
+                        <!-- Canvas Area -->
+                        <div class="canvas-container">
+                            <canvas id="editorCanvas"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Area Editor -->
+                    <div id="areaEditor" class="area-editor hidden">
+                        <h4>新增互動區域</h4>
+                        <div class="bounds-inputs">
+                            <div class="form-group">
+                                <label>X</label>
+                                <input id="boundsX" type="number" min="0" />
+                            </div>
+                            <div class="form-group">
+                                <label>Y</label>
+                                <input id="boundsY" type="number" min="0" />
+                            </div>
+                            <div class="form-group">
+                                <label>寬度</label>
+                                <input id="boundsWidth" type="number" min="1" />
+                            </div>
+                            <div class="form-group">
+                                <label>高度</label>
+                                <input id="boundsHeight" type="number" min="1" />
+                            </div>
+                        </div>
+
+                        <div class="action-inputs">
+                            <div class="form-group">
+                                <label>動作類型</label>
+                                <select id="actionType">
+                                    <option value="message">訊息</option>
+                                    <option value="uri">網址</option>
+                                    <option value="postback">回傳</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>標籤</label>
+                                <input id="actionLabel" type="text" />
+                            </div>
+                            <div id="messageInputs" class="form-group">
+                                <label>訊息文字</label>
+                                <input id="actionText" type="text" />
+                            </div>
+                            <div id="uriInputs" class="form-group hidden">
+                                <label>網址</label>
+                                <input id="actionUri" type="url" />
+                            </div>
+                            <div id="postbackInputs" class="postback-inputs hidden">
+                                <div class="form-group">
+                                    <label>顯示文字</label>
+                                    <input id="actionDisplayText" type="text" />
+                                </div>
+                                <div class="form-group">
+                                    <label>回傳資料</label>
+                                    <input id="actionData" type="text" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="area-actions">
+                            <button id="addAreaBtn" class="btn btn-primary">新增區域</button>
+                        </div>
+
+                        <!-- Current Areas -->
+                        <div class="current-areas">
+                            <h4>目前區域</h4>
+                            <div id="currentAreasList"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="editor-actions">
+                    <button id="createMenuBtn" class="btn btn-success">建立 Rich Menu</button>
+                    <button id="exportJsonBtn" class="btn btn-info">導出 JSON</button>
+                    <button id="cancelBtn" class="btn btn-secondary">取消</button>
+                </div>
+            </div>
+
+            <!-- Welcome Screen -->
+            <div id="welcomeScreen" class="welcome-screen">
+                <div class="welcome-content">
+                    <i class="fab fa-line fa-4x"></i>
+                    <h2>歡迎使用 LINE Rich Menu Manager</h2>
+                    <p>請先設定您的 Channel Access Token，然後開始管理您的 Rich Menu</p>
+                    <button id="getStartedBtn" class="btn btn-primary btn-large">開始使用</button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modals -->
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>設定</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Channel Access Token</label>
+                    <input id="tokenInput" type="password" placeholder="請輸入您的 Channel Access Token" />
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="saveTokenBtn" class="btn btn-primary">儲存</button>
+                <button class="btn btn-secondary close-modal">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User ID Modal -->
+    <div id="userModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>用戶操作</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>用戶 ID</label>
+                    <input id="modalUserId" type="text" placeholder="請輸入用戶 ID" />
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="confirmUserActionBtn" class="btn btn-primary">確認</button>
+                <button class="btn btn-secondary close-modal">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert Modal -->
+    <div id="alertModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="alertTitle">訊息</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p id="alertMessage"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary close-modal">確定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin fa-2x"></i>
+            <p>載入中...</p>
+        </div>
+    </div>
 
     <script src="/static/main.js"></script>
 </body>
+
 </html>
