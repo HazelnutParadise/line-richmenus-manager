@@ -61,6 +61,13 @@ ng serve --aot --progress=false --proxy-config proxy.conf.json
 
 3. To debug browser, select "Launch Chrome" and Press F5.
 
+## Go Gin Server
+A minimal gin-based server is provided under `gin-server` for experimentation. Set `LINE_CHANNEL_SECRET` and `LINE_CHANNEL_ACCESS_TOKEN` and run:
+```
+go run gin-server/main.go
+```
+Visit `http://localhost:8080` to see a basic web UI.
+
 ## Special Thanks
 Azuma Ken
 
