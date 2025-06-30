@@ -2,7 +2,10 @@ module line-richmenus-manager/gin-server
 
 go 1.24.3
 
-require github.com/gin-gonic/gin v1.10.1
+require (
+	github.com/gin-gonic/gin v1.10.1
+	github.com/line/line-bot-sdk-go/v8 v8.9.0
+)
 
 require (
 	github.com/bytedance/sonic v1.11.6 // indirect
