@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -124,9 +127,40 @@ func createRichMenu(c *gin.Context) {
 		return
 	}
 
+	// Read raw body to provide better error messages when JSON is invalid
+	bodyBytes, err := c.GetRawData()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
+		return
+	}
+	if len(bodyBytes) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Empty request body"})
+		return
+	}
+
+	// First unmarshal into a generic map so we can normalize numeric fields
+	var raw map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+		// Log raw body for easier debugging
+		log.Printf("createRichMenu: invalid JSON when decoding to map: %v\nBody: %s\n", err, string(bodyBytes))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON: " + err.Error(), "body": string(bodyBytes)})
+		return
+	}
+
+	// Normalize numeric fields that may arrive as floats (from frontend) into integers
+	normalizeRichMenuNumbers(raw)
+
+	normalizedBytes, err := json.Marshal(raw)
+	if err != nil {
+		log.Printf("createRichMenu: failed to re-marshal normalized body: %v\nBody: %s\n", err, string(bodyBytes))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to normalize request body"})
+		return
+	}
+
 	var richMenuRequest messaging_api.RichMenuRequest
-	if err := c.ShouldBindJSON(&richMenuRequest); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := json.Unmarshal(normalizedBytes, &richMenuRequest); err != nil {
+		log.Printf("createRichMenu: invalid JSON after normalization: %v\nBody: %s\n", err, string(normalizedBytes))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON after normalization: " + err.Error(), "body": string(normalizedBytes)})
 		return
 	}
 
@@ -345,4 +379,55 @@ func deleteDefaultRichMenu(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// normalizeRichMenuNumbers walks the decoded JSON map and converts numeric
+// fields that should be integers into ints. The frontend may send floats
+// (e.g. from a JS layout tool) which would fail unmarshalling into the
+// SDK structs that expect integer types.
+func normalizeRichMenuNumbers(m map[string]interface{}) {
+	// Helper to convert a value to int64 if it's numeric
+	toInt := func(v interface{}) interface{} {
+		switch n := v.(type) {
+		case float64:
+			// round to nearest int
+			return int64(math.Round(n))
+		case float32:
+			return int64(math.Round(float64(n)))
+		default:
+			return v
+		}
+	}
+
+	// Normalize size.width/height
+	if size, ok := m["size"].(map[string]interface{}); ok {
+		if w, ok := size["width"]; ok {
+			size["width"] = toInt(w)
+		}
+		if h, ok := size["height"]; ok {
+			size["height"] = toInt(h)
+		}
+	}
+
+	// Normalize areas[*].bounds.{x,y,width,height}
+	if areas, ok := m["areas"].([]interface{}); ok {
+		for _, a := range areas {
+			if areaMap, ok := a.(map[string]interface{}); ok {
+				if bounds, ok := areaMap["bounds"].(map[string]interface{}); ok {
+					if x, ok := bounds["x"]; ok {
+						bounds["x"] = toInt(x)
+					}
+					if y, ok := bounds["y"]; ok {
+						bounds["y"] = toInt(y)
+					}
+					if w, ok := bounds["width"]; ok {
+						bounds["width"] = toInt(w)
+					}
+					if h, ok := bounds["height"]; ok {
+						bounds["height"] = toInt(h)
+					}
+				}
+			}
+		}
+	}
 }
