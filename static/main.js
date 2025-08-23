@@ -58,6 +58,9 @@ class RichMenuManager {
         // Menu actions
         document.getElementById('resetDefaultBtn').addEventListener('click', () => this.resetDefaultMenu());
         document.getElementById('deleteBtn').addEventListener('click', () => this.deleteMenu());
+        // Edit existing menu
+        const editBtn = document.getElementById('editBtn');
+        if (editBtn) editBtn.addEventListener('click', () => this.openEditorForSelected());
         document.getElementById('linkUserBtn').addEventListener('click', () => this.showUserModal('link'));
         document.getElementById('unlinkUserBtn').addEventListener('click', () => this.showUserModal('unlink'));
         document.getElementById('setDefaultBtn').addEventListener('click', () => this.setDefaultMenu());
@@ -68,7 +71,14 @@ class RichMenuManager {
         document.getElementById('importJsonBtn').addEventListener('click', () => this.importFromJson());
         document.getElementById('actionType').addEventListener('change', (e) => this.toggleActionInputs(e.target.value));
         document.getElementById('addAreaBtn').addEventListener('click', () => this.addArea());
-        document.getElementById('createMenuBtn').addEventListener('click', () => this.createRichMenu());
+        document.getElementById('createMenuBtn').addEventListener('click', () => {
+            // If editing an existing menu, perform update flow
+            if (this.editingExisting && this.selectedMenu) {
+                this.updateRichMenu();
+            } else {
+                this.createRichMenu();
+            }
+        });
         document.getElementById('exportJsonBtn').addEventListener('click', () => this.exportToJson());
         document.getElementById('cancelBtn').addEventListener('click', () => this.hideEditor());
 
@@ -352,6 +362,132 @@ class RichMenuManager {
         this.resetEditor();
     }
 
+    // Open editor pre-filled for the currently selected menu
+    openEditorForSelected() {
+        if (!this.selectedMenu) return;
+        this.showEditorForExisting(this.selectedMenu);
+    }
+
+    // Populate editor with existing rich menu data for editing
+    showEditorForExisting(menu) {
+        document.getElementById('welcomeScreen').classList.add('hidden');
+        document.getElementById('menuDetail').classList.add('hidden');
+        document.getElementById('menuEditor').classList.remove('hidden');
+
+        // Reset editor then enable editingExisting flag
+        this.resetEditor();
+        this.editingExisting = true; // flag used when saving
+
+        // Populate fields
+        document.getElementById('newMenuName').value = menu.name || '';
+        document.getElementById('newChatBarText').value = menu.chatBarText || '';
+
+        // Load image into editor canvas by requesting the content endpoint
+        // and drawing it to the canvas. We won't mark the imageUpload input.
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            const canvas = document.getElementById('editorCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // scale similarly to loadImage
+            const maxWidth = 800;
+            const maxHeight = 600;
+            let { width, height } = img;
+            const scaleX = maxWidth / width;
+            const scaleY = maxHeight / height;
+            const scale = Math.min(scaleX, scaleY, 1);
+
+            canvas.width = width * scale;
+            canvas.height = height * scale;
+
+            this.originalImageWidth = width;
+            this.originalImageHeight = height;
+            this.canvasScale = scale;
+
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            this.originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            canvas.parentElement.classList.add('has-image');
+            document.getElementById('areaEditor').classList.remove('hidden');
+        };
+        img.onerror = () => {
+            // ignore image load failure
+        };
+        img.src = `/richmenus/${menu.richMenuId}/content`;
+
+        // Populate areas
+        this.currentAreas = (menu.areas || []).map(a => ({
+            bounds: { x: a.bounds.x, y: a.bounds.y, width: a.bounds.width, height: a.bounds.height },
+            action: { ...a.action }
+        }));
+
+        this.updateCurrentAreasList();
+        this.redrawCanvas();
+
+        // Update create button text to indicate update
+        document.getElementById('createMenuBtn').textContent = '更新 Rich Menu';
+    }
+
+    // Update an existing rich menu: PUT metadata, optionally upload a new image
+    async updateRichMenu() {
+        if (!this.selectedMenu) return;
+
+        const name = document.getElementById('newMenuName').value.trim();
+        const chatBarText = document.getElementById('newChatBarText').value.trim();
+        const imageFile = document.getElementById('imageUpload').files[0];
+
+        if (!name || this.currentAreas.length === 0) {
+            this.showAlert('錯誤', '請填寫必要欄位並至少有一個互動區域');
+            return;
+        }
+
+        const richMenuData = {
+            size: {
+                width: this.originalImageWidth || 2500,
+                height: this.originalImageHeight || 1686
+            },
+            selected: true,
+            name: name,
+            chatBarText: chatBarText || name,
+            areas: this.currentAreas
+        };
+
+        // Send PUT to update metadata; backend will create a new richmenu and return new id
+        const endpoint = `/richmenus/${this.selectedMenu.richMenuId}`;
+        const result = await this.apiCall(endpoint, {
+            method: 'PUT',
+            body: JSON.stringify(richMenuData)
+        });
+
+        if (result && result.richMenuId) {
+            const newId = result.richMenuId;
+
+            // If user supplied a new image, upload it to the new rich menu
+            if (imageFile) {
+                const formData = new FormData();
+                formData.append('image', imageFile);
+
+                const uploadResult = await this.apiCall(`/richmenus/${newId}/content`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${this.token}` },
+                    body: formData
+                });
+
+                if (uploadResult === null) {
+                    // image upload failed
+                    this.showAlert('警告', 'Metadata 已更新，但圖片上傳失敗');
+                    return;
+                }
+            }
+
+            this.showAlert('成功', 'Rich Menu 已更新');
+            this.editingExisting = false;
+            document.getElementById('createMenuBtn').textContent = '建立 Rich Menu';
+            this.hideEditor();
+            this.loadRichMenus();
+        }
+    }
+
     resetEditor() {
         // 重置表單欄位
         document.getElementById('newMenuName').value = '';
@@ -383,6 +519,8 @@ class RichMenuManager {
 
         this.updateCurrentAreasList();
         this.clearAreaForm();
+        // reset editingExisting flag when creating a fresh editor
+        this.editingExisting = false;
         // 只有在沒有圖片時才隱藏區域編輯器
         if (!this.originalImageData) {
             document.getElementById('areaEditor').classList.add('hidden');
@@ -412,9 +550,42 @@ class RichMenuManager {
         const img = new Image();
 
         img.onload = () => {
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
+            // scale preview to reasonable size while keeping aspect ratio
+            const maxWidth = 400;
+            const maxHeight = 300;
+            let { width, height } = img;
+            const scaleX = maxWidth / width;
+            const scaleY = maxHeight / height;
+            const scale = Math.min(scaleX, scaleY, 1);
+
+            canvas.width = Math.round(width * scale);
+            canvas.height = Math.round(height * scale);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // draw area overlays if we have the selectedMenu loaded
+            if (this.selectedMenu && Array.isArray(this.selectedMenu.areas)) {
+                this.selectedMenu.areas.forEach(area => {
+                    const a = area.bounds || {};
+                    const x = (a.x || 0) * scale;
+                    const y = (a.y || 0) * scale;
+                    const w = (a.width || 0) * scale;
+                    const h = (a.height || 0) * scale;
+
+                    ctx.strokeStyle = '#06c755';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([]);
+                    ctx.strokeRect(x, y, w, h);
+                    ctx.fillStyle = 'rgba(6, 199, 85, 0.08)';
+                    ctx.fillRect(x, y, w, h);
+                });
+            }
+        };
+
+        img.onerror = () => {
+            // clear canvas on error
+            canvas.width = 0;
+            canvas.height = 0;
         };
 
         img.src = `/richmenus/${menuId}/content`;
@@ -474,7 +645,7 @@ class RichMenuManager {
 
     renderAreas(areas) {
         const container = document.getElementById('areasList');
-        container.innerHTML = areas.map((area, index) => `
+        container.innerHTML = (areas || []).map((area, index) => `
             <div class="area-item">
                 <div class="area-header">
                     <div class="area-index">${index + 1}</div>
@@ -507,9 +678,27 @@ class RichMenuManager {
                         </div>
                     ` : ''}
                 </div>
+                <div class="area-actions-detail">
+                    <button class="btn btn-sm btn-primary" onclick="richMenuManager.editAreaFromDetail(${index})" title="編輯">編輯</button>
+                </div>
             </div>
         `).join('');
     }    // Canvas drawing and area management
+
+    // Called from the detail view to edit a specific area
+    editAreaFromDetail(index) {
+        if (!this.selectedMenu) return;
+        // open editor prefilled for this menu
+        this.showEditorForExisting(this.selectedMenu);
+
+        // select the area after a short delay to allow editor to populate
+        setTimeout(() => {
+            this.selectArea(index);
+            document.getElementById('areaEditor').classList.remove('hidden');
+            // scroll editor into view
+            document.getElementById('areaEditor').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 150);
+    }
     handleCanvasMouseDown(event) {
         const canvas = document.getElementById('editorCanvas');
         const rect = canvas.getBoundingClientRect();

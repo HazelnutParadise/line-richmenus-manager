@@ -38,6 +38,8 @@ func main() {
 	// Rich Menu API routes
 	r.GET("/richmenus", getRichMenus)
 	r.GET("/richmenus/:id", getRichMenu)
+	// 新增更新 rich menu 的路由
+	r.PUT("/richmenus/:id", updateRichMenu)
 	r.POST("/richmenus", createRichMenu)
 	r.DELETE("/richmenus/:id", deleteRichMenu)
 	r.POST("/richmenus/:id/content", uploadRichMenuImage)
@@ -171,6 +173,83 @@ func createRichMenu(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"richMenuId": result.RichMenuId})
+}
+
+// updateRichMenu updates an existing rich menu's metadata (not image).
+func updateRichMenu(c *gin.Context) {
+	token := getChannelAccessToken(c)
+	if token == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing or invalid authorization header"})
+		return
+	}
+
+	if err := initClient(token); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	richMenuID := c.Param("id")
+
+	// Read raw body
+	bodyBytes, err := c.GetRawData()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
+		return
+	}
+	if len(bodyBytes) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Empty request body"})
+		return
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON: " + err.Error(), "body": string(bodyBytes)})
+		return
+	}
+
+	normalizeRichMenuNumbers(raw)
+
+	normalizedBytes, err := json.Marshal(raw)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to normalize request body"})
+		return
+	}
+
+	var richMenuRequest messaging_api.RichMenuRequest
+	if err := json.Unmarshal(normalizedBytes, &richMenuRequest); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON after normalization: " + err.Error(), "body": string(normalizedBytes)})
+		return
+	}
+
+	// SDK doesn't provide UpdateRichMenu in this version. Fallback strategy:
+	// create a new rich menu with the provided metadata and return its id.
+	// The client may then upload an image to the new rich menu and optionally
+	// remove the old one. If the request sets "deleteOld": true we will
+	// attempt to delete the original rich menu after creating the new one.
+
+	// Check deleteOld flag from raw map
+	deleteOld := false
+	if v, ok := raw["deleteOld"]; ok {
+		if b, ok := v.(bool); ok && b {
+			deleteOld = true
+		}
+	}
+
+	result, err := messagingApiClient.CreateRichMenu(&richMenuRequest)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Optionally delete the old rich menu
+	if deleteOld {
+		if _, err := messagingApiClient.DeleteRichMenu(richMenuID); err != nil {
+			// Log the error but continue — deletion failure is not fatal for the create
+			log.Printf("updateRichMenu: failed to delete old rich menu %s: %v", richMenuID, err)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"richMenuId": result.RichMenuId, "oldRichMenuId": richMenuID})
 }
 
 func deleteRichMenu(c *gin.Context) {
