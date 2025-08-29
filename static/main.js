@@ -70,6 +70,9 @@ class RichMenuManager {
         document.getElementById('settingsBtn').addEventListener('click', () => this.showSettings());
         document.getElementById('getStartedBtn').addEventListener('click', () => this.showSettings());
 
+        // Quick new menu button in no selection screen
+        document.getElementById('quickNewMenuBtn').addEventListener('click', () => this.showEditor());
+
         // Search
         document.getElementById('userIdInput').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
@@ -187,6 +190,12 @@ class RichMenuManager {
                 this.richMenus = data.richmenus;
                 this.renderRichMenuList();
                 this.hideWelcomeScreen();
+
+                // If no menu is currently selected, show no selection screen
+                if (!this.selectedMenu && this.richMenus.length > 0) {
+                    this.showNoSelectionScreen();
+                }
+
                 return true;
             } else {
                 // 資料格式不正確，顯示歡迎畫面
@@ -340,6 +349,19 @@ class RichMenuManager {
 
         countBadge.textContent = `總計: ${this.richMenus.length} 個選單`;
 
+        if (this.richMenus.length === 0) {
+            listContainer.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-inbox fa-2x"></i>
+                    <p>尚未建立任何 Rich Menu</p>
+                    <small>點擊上方「新增」按鈕開始建立</small>
+                </div>
+            `;
+            // Show no selection screen when no menus exist
+            this.showNoSelectionScreen();
+            return;
+        }
+
         listContainer.innerHTML = this.richMenus.map(menu => `
             <div class="menu-item" data-id="${menu.richMenuId}">
                 <h4>${menu.name}</h4>
@@ -380,6 +402,7 @@ class RichMenuManager {
 
     showMenuDetail(menu) {
         document.getElementById('welcomeScreen').classList.add('hidden');
+        document.getElementById('noSelectionScreen').classList.add('hidden');
         document.getElementById('menuEditor').classList.add('hidden');
         document.getElementById('menuDetail').classList.remove('hidden');
 
@@ -401,8 +424,11 @@ class RichMenuManager {
         document.querySelectorAll('.menu-item').forEach(item => {
             item.classList.remove('selected');
         });
+        // Show no selection screen when no menu is selected
+        this.showNoSelectionScreen();
     } showEditor() {
         document.getElementById('welcomeScreen').classList.add('hidden');
+        document.getElementById('noSelectionScreen').classList.add('hidden');
         document.getElementById('menuDetail').classList.add('hidden');
         document.getElementById('menuEditor').classList.remove('hidden');
 
@@ -763,11 +789,23 @@ class RichMenuManager {
     showWelcomeScreen() {
         document.getElementById('menuDetail').classList.add('hidden');
         document.getElementById('menuEditor').classList.add('hidden');
+        document.getElementById('noSelectionScreen').classList.add('hidden');
         document.getElementById('welcomeScreen').classList.remove('hidden');
     }
 
     hideWelcomeScreen() {
         document.getElementById('welcomeScreen').classList.add('hidden');
+    }
+
+    showNoSelectionScreen() {
+        document.getElementById('menuDetail').classList.add('hidden');
+        document.getElementById('menuEditor').classList.add('hidden');
+        document.getElementById('welcomeScreen').classList.add('hidden');
+        document.getElementById('noSelectionScreen').classList.remove('hidden');
+    }
+
+    hideNoSelectionScreen() {
+        document.getElementById('noSelectionScreen').classList.add('hidden');
     }
 
     loadMenuImage(menuId) {

@@ -114,6 +114,28 @@ body {
   margin-top: 1rem;
 }
 
+/* 空的狀態樣式 */
+.empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #666;
+}
+
+.empty-state i {
+  color: #ccc;
+  margin-bottom: 1rem;
+}
+
+.empty-state p {
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+
+.empty-state small {
+  color: #999;
+  font-size: 0.9rem;
+}
+
 .menu-item {
   border: 2px solid #f0f0f0;
   border-radius: 8px;
@@ -211,6 +233,43 @@ body {
   margin-bottom: 2rem;
   font-size: 1.1rem;
   line-height: 1.6;
+}
+
+/* 未選取選單畫面 */
+.no-selection-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+}
+
+.no-selection-content {
+  max-width: 500px;
+}
+
+.no-selection-content i {
+  color: #06c755;
+  margin-bottom: 1rem;
+}
+
+.no-selection-content h2 {
+  color: #333;
+  margin-bottom: 1rem;
+  font-size: 2rem;
+}
+
+.no-selection-content p {
+  color: #666;
+  margin-bottom: 2rem;
+  font-size: 1.1rem;
+  line-height: 1.6;
+}
+
+.no-selection-actions {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
 }
 
 /* 選單詳細資訊 */
@@ -550,6 +609,26 @@ body {
   gap: 0.5rem;
   text-decoration: none;
   background: none;
+}
+
+/* 按鈕內的圖標樣式 */
+.btn i,
+.btn i.fas,
+.btn i.fab,
+.btn i.far {
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-right: 0.25rem;
+}
+
+/* 大按鈕的圖標樣式 */
+.btn-large i,
+.btn-large i.fas,
+.btn-large i.fab,
+.btn-large i.far {
+  font-size: 1.2rem;
+  margin-right: 0.5rem;
 }
 
 .btn:hover {
