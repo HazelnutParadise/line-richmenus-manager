@@ -7,9 +7,9 @@ import (
 	"log"
 	"net/http"
 
-	"line-richmenus-manager/gin-server/middleware"
-	"line-richmenus-manager/gin-server/services"
-	"line-richmenus-manager/gin-server/utils"
+	"line-richmenus-manager/internal/middleware"
+	"line-richmenus-manager/internal/services"
+	"line-richmenus-manager/internal/utils"
 
 	"github.com/gin-gonic/gin"
 )

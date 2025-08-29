@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"line-richmenus-manager/gin-server/middleware"
-	"line-richmenus-manager/gin-server/services"
+	"line-richmenus-manager/internal/middleware"
+	"line-richmenus-manager/internal/services"
 
 	"github.com/gin-gonic/gin"
 )

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"line-richmenus-manager/gin-server/handlers"
-	"line-richmenus-manager/gin-server/middleware"
+	"line-richmenus-manager/internal/handlers"
+	"line-richmenus-manager/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 )

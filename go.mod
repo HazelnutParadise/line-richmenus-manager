@@ -1,4 +1,4 @@
-module line-richmenus-manager/gin-server
+module line-richmenus-manager
 
 go 1.24.3
 
