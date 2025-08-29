@@ -127,16 +127,16 @@ func (h *RichMenuHandler) UpdateRichMenu(c *gin.Context) {
 		}
 	}
 
+	// Create new rich menu
 	result, err := h.lineService.CreateRichMenu(richMenuRequest)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Optionally delete the old rich menu
+	// If deleteOld is true, delete the old rich menu after creating the new one.
 	if deleteOld {
 		if err := h.lineService.DeleteRichMenu(richMenuID); err != nil {
-			// Log the error but continue — deletion failure is not fatal for the create
 			log.Printf("UpdateRichMenu: failed to delete old rich menu %s: %v", richMenuID, err)
 		}
 	}
@@ -145,10 +145,6 @@ func (h *RichMenuHandler) UpdateRichMenu(c *gin.Context) {
 }
 
 func (h *RichMenuHandler) DeleteRichMenu(c *gin.Context) {
-	if err := h.initService(c); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
 
 	richMenuID := c.Param("id")
 	err := h.lineService.DeleteRichMenu(richMenuID)
