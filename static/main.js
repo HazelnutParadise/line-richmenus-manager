@@ -363,13 +363,13 @@ class RichMenuManager {
     }
 
     // Open editor pre-filled for the currently selected menu
-    openEditorForSelected() {
+    async openEditorForSelected() {
         if (!this.selectedMenu) return;
-        this.showEditorForExisting(this.selectedMenu);
+        await this.showEditorForExisting(this.selectedMenu);
     }
 
     // Populate editor with existing rich menu data for editing
-    showEditorForExisting(menu) {
+    async showEditorForExisting(menu) {
         document.getElementById('welcomeScreen').classList.add('hidden');
         document.getElementById('menuDetail').classList.add('hidden');
         document.getElementById('menuEditor').classList.remove('hidden');
@@ -384,36 +384,17 @@ class RichMenuManager {
 
         // Load image into editor canvas by requesting the content endpoint
         // and drawing it to the canvas. We won't mark the imageUpload input.
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-            const canvas = document.getElementById('editorCanvas');
-            const ctx = canvas.getContext('2d');
-
-            // scale similarly to loadImage
-            const maxWidth = 800;
-            const maxHeight = 600;
-            let { width, height } = img;
-            const scaleX = maxWidth / width;
-            const scaleY = maxHeight / height;
-            const scale = Math.min(scaleX, scaleY, 1);
-
-            canvas.width = width * scale;
-            canvas.height = height * scale;
-
-            this.originalImageWidth = width;
-            this.originalImageHeight = height;
-            this.canvasScale = scale;
-
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            this.originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            canvas.parentElement.classList.add('has-image');
+        try {
+            await this.loadExistingImage(menu.richMenuId);
+        } catch (error) {
+            console.error('載入現有圖片失敗:', error);
+            this.showAlert('錯誤', '無法載入 Rich Menu 圖片，請重新上傳圖片');
+            // Set default dimensions for the rich menu data
+            this.originalImageWidth = menu.size?.width || 2500;
+            this.originalImageHeight = menu.size?.height || 1686;
+            // Still show the editor so user can upload a new image
             document.getElementById('areaEditor').classList.remove('hidden');
-        };
-        img.onerror = () => {
-            // ignore image load failure
-        };
-        img.src = `/richmenus/${menu.richMenuId}/content`;
+        }
 
         // Populate areas
         this.currentAreas = (menu.areas || []).map(a => ({
@@ -426,6 +407,49 @@ class RichMenuManager {
 
         // Update create button text to indicate update
         document.getElementById('createMenuBtn').textContent = '更新 Rich Menu';
+    }
+
+    // Load existing image for editing
+    async loadExistingImage(richMenuId) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                const canvas = document.getElementById('editorCanvas');
+                const ctx = canvas.getContext('2d');
+
+                // scale similarly to loadImage
+                const maxWidth = 800;
+                const maxHeight = 600;
+                let { width, height } = img;
+                const scaleX = maxWidth / width;
+                const scaleY = maxHeight / height;
+                const scale = Math.min(scaleX, scaleY, 1);
+
+                canvas.width = width * scale;
+                canvas.height = height * scale;
+
+                this.originalImageWidth = width;
+                this.originalImageHeight = height;
+                this.canvasScale = scale;
+
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                this.originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                canvas.parentElement.classList.add('has-image');
+                document.getElementById('areaEditor').classList.remove('hidden');
+
+                resolve();
+            };
+            img.onerror = () => {
+                // Set default dimensions when image loading fails
+                this.originalImageWidth = 2500;
+                this.originalImageHeight = 1686;
+                this.canvasScale = 1;
+                console.error('圖片載入失敗，使用默認尺寸');
+                reject(new Error('圖片載入失敗'));
+            };
+            img.src = `/richmenus/${richMenuId}/content`;
+        });
     }
 
     // Update an existing rich menu: PUT metadata, optionally upload a new image
@@ -449,7 +473,8 @@ class RichMenuManager {
             selected: true,
             name: name,
             chatBarText: chatBarText || name,
-            areas: this.currentAreas
+            areas: this.currentAreas,
+            deleteOld: true  // 自動刪除舊的rich menu
         };
 
         // Send PUT to update metadata; backend will create a new richmenu and return new id
@@ -462,8 +487,9 @@ class RichMenuManager {
         if (result && result.richMenuId) {
             const newId = result.richMenuId;
 
-            // If user supplied a new image, upload it to the new rich menu
+            // Handle image upload/copy
             if (imageFile) {
+                // User supplied a new image, upload it to the new rich menu
                 const formData = new FormData();
                 formData.append('image', imageFile);
 
@@ -476,6 +502,41 @@ class RichMenuManager {
                 if (uploadResult === null) {
                     // image upload failed
                     this.showAlert('警告', 'Metadata 已更新，但圖片上傳失敗');
+                    return;
+                }
+            } else {
+                // No new image supplied, copy the existing image from old rich menu
+                try {
+                    const imageResponse = await fetch(`/richmenus/${this.selectedMenu.richMenuId}/content`, {
+                        headers: { 'Authorization': `Bearer ${this.token}` }
+                    });
+
+                    if (imageResponse.ok) {
+                        const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
+                        const imageBlob = await imageResponse.blob();
+
+                        const formData = new FormData();
+                        // Use appropriate filename based on content type
+                        const extension = contentType.includes('png') ? 'png' : 'jpg';
+                        formData.append('image', imageBlob, `richmenu_image.${extension}`);
+
+                        const uploadResult = await this.apiCall(`/richmenus/${newId}/content`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${this.token}` },
+                            body: formData
+                        });
+
+                        if (uploadResult === null) {
+                            this.showAlert('警告', 'Metadata 已更新，但圖片複製失敗');
+                            return;
+                        }
+                    } else {
+                        console.warn('無法獲取原始圖片:', imageResponse.status, imageResponse.statusText);
+                        this.showAlert('警告', '無法獲取原始圖片，Metadata 已更新但無圖片');
+                    }
+                } catch (error) {
+                    console.error('複製圖片時發生錯誤:', error);
+                    this.showAlert('警告', 'Metadata 已更新，但圖片複製失敗');
                     return;
                 }
             }
@@ -686,10 +747,10 @@ class RichMenuManager {
     }    // Canvas drawing and area management
 
     // Called from the detail view to edit a specific area
-    editAreaFromDetail(index) {
+    async editAreaFromDetail(index) {
         if (!this.selectedMenu) return;
         // open editor prefilled for this menu
-        this.showEditorForExisting(this.selectedMenu);
+        await this.showEditorForExisting(this.selectedMenu);
 
         // select the area after a short delay to allow editor to populate
         setTimeout(() => {
