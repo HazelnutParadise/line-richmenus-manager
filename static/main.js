@@ -33,10 +33,17 @@ class RichMenuManager {
 
     init() {
         this.setupEventListeners();
-        this.showWelcomeScreen();
 
         if (this.token) {
-            this.loadRichMenus();
+            // 如果有token，先隱藏歡迎畫面，然後嘗試載入資料
+            this.hideWelcomeScreen();
+            this.loadRichMenus().catch(() => {
+                // 如果載入失敗，顯示歡迎畫面讓用戶重新設定
+                this.showWelcomeScreen();
+            });
+        } else {
+            // 沒有token，顯示歡迎畫面
+            this.showWelcomeScreen();
         }
     }
 
@@ -120,7 +127,7 @@ class RichMenuManager {
 
     // API Methods
     async apiCall(endpoint, options = {}) {
-        if (!this.token && !endpoint.includes('content')) {
+        if (!this.token) {
             this.showAlert('錯誤', '請先設定 Channel Access Token');
             return null;
         }
@@ -159,11 +166,23 @@ class RichMenuManager {
 
     // Rich Menu Operations
     async loadRichMenus() {
-        const data = await this.apiCall('/richmenus');
-        if (data && data.richmenus) {
-            this.richMenus = data.richmenus;
-            this.renderRichMenuList();
-            this.hideWelcomeScreen();
+        try {
+            const data = await this.apiCall('/richmenus');
+            if (data && data.richmenus) {
+                this.richMenus = data.richmenus;
+                this.renderRichMenuList();
+                this.hideWelcomeScreen();
+                return true;
+            } else {
+                // 資料格式不正確，顯示歡迎畫面
+                this.showWelcomeScreen();
+                return false;
+            }
+        } catch (error) {
+            // API調用失敗，顯示歡迎畫面
+            console.error('載入Rich Menu失敗:', error);
+            this.showWelcomeScreen();
+            return false;
         }
     }
 
@@ -300,11 +319,16 @@ class RichMenuManager {
         listContainer.innerHTML = this.richMenus.map(menu => `
             <div class="menu-item" data-id="${menu.richMenuId}">
                 <h4>${menu.name}</h4>
-                <img src="/richmenus/${menu.richMenuId}/content" 
-                     alt="${menu.name}"
-                     onerror="this.style.display='none'">
+                <div class="menu-thumbnail" data-menu-id="${menu.richMenuId}">
+                    <div class="thumbnail-placeholder">載入中...</div>
+                </div>
             </div>
         `).join('');
+
+        // Load thumbnails for each menu
+        this.richMenus.forEach(menu => {
+            this.loadMenuThumbnail(menu.richMenuId);
+        });
 
         // Add click events
         listContainer.querySelectorAll('.menu-item').forEach(item => {
@@ -394,6 +418,17 @@ class RichMenuManager {
             this.originalImageHeight = menu.size?.height || 1686;
             // Still show the editor so user can upload a new image
             document.getElementById('areaEditor').classList.remove('hidden');
+            // Show a message in the canvas area
+            const canvas = document.getElementById('editorCanvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 400;
+            canvas.height = 300;
+            ctx.fillStyle = '#f5f5f5';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#666';
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('圖片載入失敗，請重新上傳', canvas.width / 2, canvas.height / 2);
         }
 
         // Populate areas
@@ -411,44 +446,81 @@ class RichMenuManager {
 
     // Load existing image for editing
     async loadExistingImage(richMenuId) {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = () => {
-                const canvas = document.getElementById('editorCanvas');
-                const ctx = canvas.getContext('2d');
+        return new Promise(async (resolve, reject) => {
+            if (!this.token) {
+                reject(new Error('沒有設定 Channel Access Token'));
+                return;
+            }
 
-                // scale similarly to loadImage
-                const maxWidth = 800;
-                const maxHeight = 600;
-                let { width, height } = img;
-                const scaleX = maxWidth / width;
-                const scaleY = maxHeight / height;
-                const scale = Math.min(scaleX, scaleY, 1);
+            try {
+                // First, fetch the image with authorization header
+                const response = await fetch(`/richmenus/${richMenuId}/content`, {
+                    headers: {
+                        'Authorization': `Bearer ${this.token}`
+                    }
+                });
 
-                canvas.width = width * scale;
-                canvas.height = height * scale;
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
 
-                this.originalImageWidth = width;
-                this.originalImageHeight = height;
-                this.canvasScale = scale;
+                // Convert response to blob
+                const imageBlob = await response.blob();
 
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                this.originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                canvas.parentElement.classList.add('has-image');
-                document.getElementById('areaEditor').classList.remove('hidden');
+                // Create object URL for the image
+                const imageUrl = URL.createObjectURL(imageBlob);
 
-                resolve();
-            };
-            img.onerror = () => {
-                // Set default dimensions when image loading fails
+                const img = new Image();
+                img.onload = () => {
+                    // Clean up the object URL
+                    URL.revokeObjectURL(imageUrl);
+
+                    const canvas = document.getElementById('editorCanvas');
+                    const ctx = canvas.getContext('2d');
+
+                    // scale similarly to loadImage
+                    const maxWidth = 800;
+                    const maxHeight = 600;
+                    let { width, height } = img;
+                    const scaleX = maxWidth / width;
+                    const scaleY = maxHeight / height;
+                    const scale = Math.min(scaleX, scaleY, 1);
+
+                    canvas.width = width * scale;
+                    canvas.height = height * scale;
+
+                    this.originalImageWidth = width;
+                    this.originalImageHeight = height;
+                    this.canvasScale = scale;
+
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    this.originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    canvas.parentElement.classList.add('has-image');
+                    document.getElementById('areaEditor').classList.remove('hidden');
+
+                    resolve();
+                };
+                img.onerror = () => {
+                    // Clean up the object URL
+                    URL.revokeObjectURL(imageUrl);
+
+                    // Set default dimensions when image loading fails
+                    this.originalImageWidth = 2500;
+                    this.originalImageHeight = 1686;
+                    this.canvasScale = 1;
+                    console.error('圖片載入失敗，使用默認尺寸');
+                    reject(new Error('圖片載入失敗'));
+                };                // Set the image source to the blob URL
+                img.src = imageUrl;
+
+            } catch (error) {
+                console.error('獲取圖片時發生錯誤:', error);
+                // Set default dimensions when fetch fails
                 this.originalImageWidth = 2500;
                 this.originalImageHeight = 1686;
                 this.canvasScale = 1;
-                console.error('圖片載入失敗，使用默認尺寸');
-                reject(new Error('圖片載入失敗'));
-            };
-            img.src = `/richmenus/${richMenuId}/content`;
+                reject(new Error(`圖片獲取失敗: ${error.message}`));
+            }
         });
     }
 
@@ -477,6 +549,29 @@ class RichMenuManager {
             deleteOld: true  // 自動刪除舊的rich menu
         };
 
+        // If no new image is supplied, we need to copy the existing image
+        // before sending the update request (which will delete the old menu)
+        let existingImageBlob = null;
+        let existingImageType = 'image/jpeg';
+
+        if (!imageFile) {
+            try {
+                this.showAlert('信息', '正在複製圖片...');
+                const imageResponse = await fetch(`/richmenus/${this.selectedMenu.richMenuId}/content`, {
+                    headers: { 'Authorization': `Bearer ${this.token}` }
+                });
+
+                if (imageResponse.ok) {
+                    existingImageBlob = await imageResponse.blob();
+                    existingImageType = imageResponse.headers.get('content-type') || 'image/jpeg';
+                } else {
+                    console.warn('無法獲取原始圖片:', imageResponse.status, imageResponse.statusText);
+                }
+            } catch (error) {
+                console.error('獲取現有圖片時發生錯誤:', error);
+            }
+        }
+
         // Send PUT to update metadata; backend will create a new richmenu and return new id
         const endpoint = `/richmenus/${this.selectedMenu.richMenuId}`;
         const result = await this.apiCall(endpoint, {
@@ -504,38 +599,19 @@ class RichMenuManager {
                     this.showAlert('警告', 'Metadata 已更新，但圖片上傳失敗');
                     return;
                 }
-            } else {
-                // No new image supplied, copy the existing image from old rich menu
-                try {
-                    const imageResponse = await fetch(`/richmenus/${this.selectedMenu.richMenuId}/content`, {
-                        headers: { 'Authorization': `Bearer ${this.token}` }
-                    });
+            } else if (existingImageBlob) {
+                // Copy the existing image that we downloaded earlier
+                const formData = new FormData();
+                const extension = existingImageType.includes('png') ? 'png' : 'jpg';
+                formData.append('image', existingImageBlob, `richmenu_image.${extension}`);
 
-                    if (imageResponse.ok) {
-                        const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
-                        const imageBlob = await imageResponse.blob();
+                const uploadResult = await this.apiCall(`/richmenus/${newId}/content`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${this.token}` },
+                    body: formData
+                });
 
-                        const formData = new FormData();
-                        // Use appropriate filename based on content type
-                        const extension = contentType.includes('png') ? 'png' : 'jpg';
-                        formData.append('image', imageBlob, `richmenu_image.${extension}`);
-
-                        const uploadResult = await this.apiCall(`/richmenus/${newId}/content`, {
-                            method: 'POST',
-                            headers: { 'Authorization': `Bearer ${this.token}` },
-                            body: formData
-                        });
-
-                        if (uploadResult === null) {
-                            this.showAlert('警告', 'Metadata 已更新，但圖片複製失敗');
-                            return;
-                        }
-                    } else {
-                        console.warn('無法獲取原始圖片:', imageResponse.status, imageResponse.statusText);
-                        this.showAlert('警告', '無法獲取原始圖片，Metadata 已更新但無圖片');
-                    }
-                } catch (error) {
-                    console.error('複製圖片時發生錯誤:', error);
+                if (uploadResult === null) {
                     this.showAlert('警告', 'Metadata 已更新，但圖片複製失敗');
                     return;
                 }
@@ -608,48 +684,154 @@ class RichMenuManager {
     loadMenuImage(menuId) {
         const canvas = document.getElementById('previewCanvas');
         const ctx = canvas.getContext('2d');
-        const img = new Image();
 
-        img.onload = () => {
-            // scale preview to reasonable size while keeping aspect ratio
-            const maxWidth = 400;
-            const maxHeight = 300;
-            let { width, height } = img;
-            const scaleX = maxWidth / width;
-            const scaleY = maxHeight / height;
-            const scale = Math.min(scaleX, scaleY, 1);
+        // Clear canvas first
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            canvas.width = Math.round(width * scale);
-            canvas.height = Math.round(height * scale);
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        if (!this.token) {
+            ctx.fillStyle = '#f5f5f5';
+            ctx.fillRect(0, 0, 400, 300);
+            ctx.fillStyle = '#666';
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('請先設定 Channel Access Token', 200, 150);
+            return;
+        }
 
-            // draw area overlays if we have the selectedMenu loaded
-            if (this.selectedMenu && Array.isArray(this.selectedMenu.areas)) {
-                this.selectedMenu.areas.forEach(area => {
-                    const a = area.bounds || {};
-                    const x = (a.x || 0) * scale;
-                    const y = (a.y || 0) * scale;
-                    const w = (a.width || 0) * scale;
-                    const h = (a.height || 0) * scale;
-
-                    ctx.strokeStyle = '#06c755';
-                    ctx.lineWidth = 2;
-                    ctx.setLineDash([]);
-                    ctx.strokeRect(x, y, w, h);
-                    ctx.fillStyle = 'rgba(6, 199, 85, 0.08)';
-                    ctx.fillRect(x, y, w, h);
-                });
+        // Fetch image with authorization
+        fetch(`/richmenus/${menuId}/content`, {
+            headers: {
+                'Authorization': `Bearer ${this.token}`
             }
-        };
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.blob();
+            })
+            .then(imageBlob => {
+                const img = new Image();
+                const imageUrl = URL.createObjectURL(imageBlob);
 
-        img.onerror = () => {
-            // clear canvas on error
-            canvas.width = 0;
-            canvas.height = 0;
-        };
+                img.onload = () => {
+                    // Clean up the object URL
+                    URL.revokeObjectURL(imageUrl);
 
-        img.src = `/richmenus/${menuId}/content`;
+                    // scale preview to reasonable size while keeping aspect ratio
+                    const maxWidth = 400;
+                    const maxHeight = 300;
+                    let { width, height } = img;
+                    const scaleX = maxWidth / width;
+                    const scaleY = maxHeight / height;
+                    const scale = Math.min(scaleX, scaleY, 1);
+
+                    canvas.width = Math.round(width * scale);
+                    canvas.height = Math.round(height * scale);
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                    // draw area overlays if we have the selectedMenu loaded
+                    if (this.selectedMenu && Array.isArray(this.selectedMenu.areas)) {
+                        this.selectedMenu.areas.forEach(area => {
+                            const a = area.bounds || {};
+                            const x = (a.x || 0) * scale;
+                            const y = (a.y || 0) * scale;
+                            const w = (a.width || 0) * scale;
+                            const h = (a.height || 0) * scale;
+
+                            ctx.strokeStyle = '#06c755';
+                            ctx.lineWidth = 2;
+                            ctx.setLineDash([]);
+                            ctx.strokeRect(x, y, w, h);
+                            ctx.fillStyle = 'rgba(6, 199, 85, 0.08)';
+                            ctx.fillRect(x, y, w, h);
+                        });
+                    }
+                };
+
+                img.onerror = () => {
+                    // Clean up the object URL
+                    URL.revokeObjectURL(imageUrl);
+                    // clear canvas on error
+                    canvas.width = 0;
+                    canvas.height = 0;
+                    console.error('預覽圖片載入失敗');
+                };
+
+                img.src = imageUrl;
+            })
+            .catch(error => {
+                console.error('載入預覽圖片時發生錯誤:', error);
+                // clear canvas on error
+                canvas.width = 0;
+                canvas.height = 0;
+            });
+    }
+
+    // Load thumbnail for menu list
+    loadMenuThumbnail(menuId) {
+        const thumbnailContainer = document.querySelector(`[data-menu-id="${menuId}"]`);
+        if (!thumbnailContainer) return;
+
+        if (!this.token) {
+            thumbnailContainer.innerHTML = '<div class="thumbnail-placeholder">未設定Token</div>';
+            return;
+        }
+
+        // Fetch image with authorization
+        fetch(`/richmenus/${menuId}/content`, {
+            headers: {
+                'Authorization': `Bearer ${this.token}`
+            }
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.blob();
+            })
+            .then(imageBlob => {
+                const img = new Image();
+                const imageUrl = URL.createObjectURL(imageBlob);
+
+                img.onload = () => {
+                    // Clean up the object URL
+                    URL.revokeObjectURL(imageUrl);
+
+                    // Create canvas for thumbnail
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+
+                    // Scale to thumbnail size
+                    const maxWidth = 120;
+                    const maxHeight = 90;
+                    let { width, height } = img;
+                    const scaleX = maxWidth / width;
+                    const scaleY = maxHeight / height;
+                    const scale = Math.min(scaleX, scaleY, 1);
+
+                    canvas.width = Math.round(width * scale);
+                    canvas.height = Math.round(height * scale);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                    // Replace placeholder with canvas
+                    thumbnailContainer.innerHTML = '';
+                    thumbnailContainer.appendChild(canvas);
+                };
+
+                img.onerror = () => {
+                    // Clean up the object URL
+                    URL.revokeObjectURL(imageUrl);
+                    thumbnailContainer.innerHTML = '<div class="thumbnail-placeholder">無圖片</div>';
+                };
+
+                img.src = imageUrl;
+            })
+            .catch(error => {
+                console.error('載入縮圖時發生錯誤:', error);
+                thumbnailContainer.innerHTML = '<div class="thumbnail-placeholder">載入失敗</div>';
+            });
     }
 
     loadImage(event) {
@@ -1514,7 +1696,11 @@ class RichMenuManager {
             this.token = token;
             localStorage.setItem('line_token', token);
             this.hideModal(document.getElementById('settingsModal'));
-            this.loadRichMenus();
+            this.loadRichMenus().then(success => {
+                if (!success) {
+                    this.showAlert('錯誤', '無法載入Rich Menu，請檢查Token是否正確');
+                }
+            });
         }
     }
 
