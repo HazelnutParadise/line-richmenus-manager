@@ -1,0 +1,9 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: line-rm-manager:latest
+    network_mode: host
+    environment:
+      - PORT=7320
