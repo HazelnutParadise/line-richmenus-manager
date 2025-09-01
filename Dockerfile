@@ -7,7 +7,7 @@ RUN go mod download
 
 COPY . .
 
-CMD ["go", "build", "-o", "main", "main.go"]
+CMD ["go", "build", "-o", "main", "./main.go"]
 
 FROM scratch
 COPY --from=builder /app/main .
