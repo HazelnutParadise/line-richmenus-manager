@@ -11,4 +11,5 @@ RUN go build -o main .
 
 FROM alpine:latest
 COPY --from=builder /app/main .
+COPY --from=builder /app/static ./static
 CMD ["./main"]
