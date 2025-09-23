@@ -7,3 +7,4 @@ services:
     network_mode: host
     environment:
       - PORT=7320
+    restart: unless-stopped
