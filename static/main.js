@@ -164,7 +164,15 @@ class RichMenuManager {
             const response = await fetch(endpoint, finalOptions);
 
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                // 嘗試讀出後端回傳的 {error}，裡面通常是 LINE API 的真實錯誤原因
+                let detail = '';
+                try {
+                    const errBody = await response.json();
+                    detail = errBody && errBody.error ? errBody.error : '';
+                } catch (e) {
+                    // body 不是 JSON 或為空，忽略
+                }
+                throw new Error(`HTTP ${response.status}: ${detail || response.statusText}`);
             }
 
             const contentType = response.headers.get('content-type');
@@ -294,6 +302,47 @@ class RichMenuManager {
         }
     }
 
+    // LINE 限制 rich menu 圖片大小上限為 1MB。超過時自動以 JPEG 重新編碼壓縮，
+    // 維持原始像素尺寸（LINE 要求圖片尺寸需與選單宣告尺寸完全一致，不能縮放）。
+    // 壓縮到最低品質仍超過上限時，丟出明確錯誤讓呼叫端顯示。
+    async compressImageIfNeeded(file, maxBytes = 1024 * 1024) {
+        if (file.size <= maxBytes) return file;
+
+        const img = await new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error('無法讀取圖片，請確認檔案未損毀且為 JPEG／PNG'));
+            image.src = URL.createObjectURL(file);
+        });
+
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            // 以白底填滿，避免 PNG 透明區域轉 JPEG 後變黑
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+
+            const originalKB = Math.round(file.size / 1024);
+            for (let quality = 0.92; quality >= 0.4; quality -= 0.1) {
+                const blob = await new Promise((resolve) =>
+                    canvas.toBlob(resolve, 'image/jpeg', quality));
+                if (!blob) {
+                    throw new Error('瀏覽器無法編碼圖片');
+                }
+                if (blob.size <= maxBytes) {
+                    console.log(`圖片已壓縮：${originalKB}KB → ${Math.round(blob.size / 1024)}KB（品質 ${quality.toFixed(2)}）`);
+                    return new File([blob], 'richmenu_image.jpg', { type: 'image/jpeg' });
+                }
+            }
+            throw new Error(`即使壓縮到最低品質仍超過 1MB（原圖 ${originalKB}KB），請改用較小尺寸或較單純的圖片`);
+        } finally {
+            URL.revokeObjectURL(img.src);
+        }
+    }
+
     // Rich Menu Creation
     async createRichMenu() {
         const name = document.getElementById('newMenuName').value.trim();
@@ -324,9 +373,18 @@ class RichMenuManager {
         });
 
         if (createResult && createResult.richMenuId) {
+            // 圖片超過 1MB 時自動壓縮，失敗則明確報錯
+            let uploadImage;
+            try {
+                uploadImage = await this.compressImageIfNeeded(imageFile);
+            } catch (err) {
+                this.showAlert('錯誤', `圖片處理失敗：${err.message}`);
+                return;
+            }
+
             // Upload image
             const formData = new FormData();
-            formData.append('image', imageFile);
+            formData.append('image', uploadImage);
 
             const uploadResult = await this.apiCall(`/richmenus/${createResult.richMenuId}/content`, {
                 method: 'POST',
@@ -637,9 +695,16 @@ class RichMenuManager {
 
             // Handle image upload/copy
             if (imageFile) {
-                // User supplied a new image, upload it to the new rich menu
+                // User supplied a new image, compress if needed then upload
+                let uploadImage;
+                try {
+                    uploadImage = await this.compressImageIfNeeded(imageFile);
+                } catch (err) {
+                    this.showAlert('警告', `Metadata 已更新，但圖片處理失敗：${err.message}`);
+                    return;
+                }
                 const formData = new FormData();
-                formData.append('image', imageFile);
+                formData.append('image', uploadImage);
 
                 const uploadResult = await this.apiCall(`/richmenus/${newId}/content`, {
                     method: 'POST',
