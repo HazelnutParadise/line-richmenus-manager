@@ -355,10 +355,12 @@ class RichMenuManager {
         }
 
         // Create rich menu structure
+        // 尺寸必須與上傳圖片的實際像素完全一致，否則 LINE 會以尺寸不符拒絕。
+        // 優先採用 loadImage 量到的原始尺寸，量不到才退回預設 2500×1686。
         const richMenuData = {
             size: {
-                width: 2500,
-                height: 1686 // or other supported sizes
+                width: this.originalImageWidth || 2500,
+                height: this.originalImageHeight || 1686 // or other supported sizes
             },
             selected: true,
             name: name,
